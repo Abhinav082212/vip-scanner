@@ -1,137 +1,66 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>VIP QR Scanner — AIML</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-<style>
-  :root{--bg1:#e0c3fc;--bg2:#8ec5fc;--card:#fff;--ok:#16a34a;--bad:#ef4444;--muted:#334155;}
-  html,body{height:100%;margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Poppins";background:linear-gradient(135deg,var(--bg1),var(--bg2));display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;}
-  .card{width:420px;max-width:95vw;background:var(--card);border-radius:14px;padding:16px;box-shadow:0 14px 40px rgba(2,6,23,0.12);text-align:center;}
-  h1{margin:0 0 8px;color:var(--muted);font-size:1.4rem;}
-  video{width:100%;height:auto;border-radius:10px;background:#000;}
-  #result{min-height:56px;margin-top:12px;padding:12px;border-radius:10px;background:#f8fafc;font-weight:700;color:#0f172a;}
-  button{margin-top:12px;padding:10px 14px;border-radius:10px;border:0;background:#0b84ff;color:#fff;cursor:pointer;font-weight:700;}
-  .ok{color:var(--ok);} .err{color:var(--bad);}
-  pre{margin-top:10px;height:80px;overflow:auto;background:#f1f5f9;padding:8px;border-radius:8px;text-align:left;}
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1>🎩 VIP QR Scanner</h1>
-    <video id="video" playsinline></video>
-    <canvas id="canvas" style="display:none"></canvas>
-    <div id="result">Press Start to scan a VIP QR.</div>
-    <button id="startBtn">Start Scanner</button>
-    <pre id="log"></pre>
-  </div>
+// server.js
+const express = require('express');
+const mysql = require('mysql');
+const cors = require('cors');
 
-<script>
-// near top of vipscanner.html
-const BACKEND = "https://vip-backend-2kgs.onrender.com";
- // replace with your server URL or http://localhost:4000 for local testing
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const resultEl = document.getElementById('result');
-const log = document.getElementById('log');
-const startBtn = document.getElementById('startBtn');
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-let stream=null, scanning=false;
-
-function logMsg(...a){ log.textContent = a.join(' ') + '\\n' + log.textContent; }
-function show(msg, ok=null){
-  resultEl.textContent = msg;
-  resultEl.classList.remove('ok','err');
-  if(ok===true) resultEl.classList.add('ok');
-  else if(ok===false) resultEl.classList.add('err');
-}
-
-async function startScanner(){
-  if(scanning) return;
-  show('Requesting camera...');
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' }});
-    video.srcObject = stream;
-    await video.play();
-    scanning = true;
-    show('Point camera to VIP QR...');
-    tick();
-  }catch(e){
-    show('Camera error: ' + (e.message||e.name), false);
-    logMsg('camera error', e);
-  }
-}
-
-function stopScanner(){
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  scanning=false;
-}
-
-async function sendToServer(payload){
-  try{
-    const r = await fetch(BACKEND + '/vipvalidate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-      cache: 'no-store'
+function queryDB(sql, values) {
+  return new Promise((resolve, reject) => {
+    const connection = mysql.createConnection({
+      host: process.env.DB_HOST || 'sql12.freesqldatabase.com',
+      user: process.env.DB_USER || 'sql12802679',
+      password: process.env.DB_PASS || '4MILvy77BL',
+      database: process.env.DB_NAME || 'sql12802679',
+      port: process.env.DB_PORT || 3306,
+      connectTimeout: 10000
     });
-    const data = await r.json();
-    logMsg('server:', JSON.stringify(data));
-    if(data.status === 'ok'){
-      show(data.msg, true);
-    } else {
-      show(data.msg || '❌ '+(data.status||'error'), false);
-    }
-  }catch(err){
-    show('Network error', false);
-    logMsg('fetch error', err);
-  }
+
+    connection.connect(err => {
+      if (err) return reject(err);
+      connection.query(sql, values, (err, results) => {
+        connection.end();
+        if (err) return reject(err);
+        resolve(results);
+      });
+    });
+  });
 }
 
-function tryParseScanned(text){
-  // prefer JSON {name,role}
+// Validate VIP by serial_number only
+app.post('/vipvalidate', async (req, res) => {
+  const serial = (req.body.serial || req.body.qr || '').trim();
+  if (!serial) return res.send({ status: 'error', msg: 'Serial number missing' });
+
   try {
-    const parsed = JSON.parse(text);
-    if(parsed && parsed.name){
-      return { name: parsed.name, role: parsed.role || '' };
+    const rows = await queryDB('SELECT * FROM vip_guests WHERE serial_number = ?', [serial]);
+    if (!rows || rows.length === 0) {
+      return res.send({ status: 'invalid', msg: '❌ Serial not found' });
     }
-  } catch(e){}
-  // fallback: treat whole text as name
-  return { name: text, role: '' };
-}
 
-function tick(){
-  if(!scanning) return;
-  if(video.readyState === video.HAVE_ENOUGH_DATA){
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-    if(code){
-      logMsg('scanned raw:', code.data);
-      stopScanner();
-      const parsed = tryParseScanned(code.data.trim());
-      // send either {name, role} or {qr: raw} so server can parse as needed
-      if(parsed.role) {
-        sendToServer({ name: parsed.name, role: parsed.role });
-      } else {
-        // name only
-        sendToServer({ name: parsed.name });
-      }
-      return;
+    const guest = rows[0];
+
+    if (guest.entered) {
+      return res.send({ status: 'used', msg: `❌ Serial ${serial} — Already scanned` });
     }
+
+    // mark as entered
+    await queryDB('UPDATE vip_guests SET entered = 1 WHERE id = ?', [guest.id]);
+
+    return res.send({
+      status: 'ok',
+      msg: `🎉 Welcome! you to CSM [AL&ML]department freshers party ${serial} is valid.`
+    });
+  } catch (err) {
+    console.error('DB error:', err && err.message ? err.message : err);
+    return res.send({ status: 'error', msg: 'Database error' });
   }
-  requestAnimationFrame(tick);
-}
-
-startBtn.addEventListener('click', ()=>{
-  show('Starting camera...');
-  startScanner();
 });
-</script>
-</body>
-</html>
+
+app.get('/health', (req, res) => res.send({ status: 'ok' }));
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`VIP server listening on port ${PORT}`));
 
