@@ -63,7 +63,7 @@
 
 <script>
 /* ---------- CONFIG ---------- */
-const BACKEND_URL = "https://freshers-backend-1.onrender.com"; // <- set your backend URL if different
+const BACKEND = "https://vip-backend-2kgs.onrender.com"; // your backend
 /* ---------------------------- */
 
 const video = document.getElementById('video');
@@ -104,7 +104,7 @@ async function validateRoll(roll){
     const data = await r.json();
     logDebug('backend:', data);
     if(!data || !data.status) { showResult('Unexpected server response', false); return; }
-    if(data.status === 'ok') showResult(data.msg || '✅ Welcome! Entry Approved', true);
+    if(data.status === 'ok') showResult(data.msg || CSE[AL&ML]'✅ Welcomes! you to freshers party Entry Approved', true);
     else showResult(data.msg || '❌ Invalid or Already Used', false);
   }catch(err){
     console.error('validate error', err);
@@ -223,3 +223,4 @@ showPermissionHelp();
 </script>
 </body>
 </html>
+
