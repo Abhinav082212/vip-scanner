@@ -1,226 +1,116 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Freshers Entry Scanner — Stable</title>
-
-<!-- jsQR for decoding camera frames -->
+<title>VIP QR Scanner — AIML</title>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-
 <style>
-  :root{ --bg1:#e0c3fc; --bg2:#8ec5fc; --card:#fff; --ok:#16a34a; --bad:#ef4444; --muted:#334155; }
-  html,body{height:100%; margin:0; font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Poppins", sans-serif; background:linear-gradient(135deg,var(--bg1),var(--bg2)); display:flex; align-items:center; justify-content:center; padding:18px; box-sizing:border-box;}
-  .card{width:420px; max-width:95vw; background:var(--card); border-radius:14px; padding:16px; box-shadow:0 14px 40px rgba(2,6,23,0.12); text-align:center;}
-  h1{margin:0 0 8px; color:var(--muted); font-size:1.4rem;}
-  p.sub{margin:0 0 12px; color:#475569; font-size:0.95rem;}
-  video{width:100%; height:auto; border-radius:10px; background:#000;}
-  #canvas{display:none;}
-  #result{min-height:46px; margin-top:12px; padding:10px; border-radius:10px; background:#f8fafc; font-weight:600; color:#0f172a;}
-  .controls{margin-top:12px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
-  .btn{padding:10px 14px; border-radius:10px; border:0; cursor:pointer; font-weight:600;}
-  .btn-primary{background:#0b84ff; color:#fff;}
-  .btn-green{background:#22c55e; color:#fff;}
-  .btn-muted{background:#f3f4f6; color:#222;}
-  input[type=text]{padding:8px; border-radius:8px; border:1px solid #ddd; width:220px;}
-  .small{font-size:0.85rem;color:#6b7280;margin-top:8px;}
-  .error{color:var(--bad);}
-  .ok{color:var(--ok);}
-  pre.debug{height:80px; overflow:auto; text-align:left; background:#f1f5f9; padding:8px; border-radius:8px; margin-top:8px; font-size:12px;}
+  :root{--bg1:#e0c3fc;--bg2:#8ec5fc;--card:#fff;--ok:#16a34a;--bad:#ef4444;--muted:#334155;}
+  html,body{height:100%;margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Poppins";background:linear-gradient(135deg,var(--bg1),var(--bg2));display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;}
+  .card{width:420px;max-width:95vw;background:var(--card);border-radius:14px;padding:16px;box-shadow:0 14px 40px rgba(2,6,23,0.12);text-align:center;}
+  h1{margin:0 0 8px;color:var(--muted);font-size:1.4rem;}
+  video{width:100%;height:auto;border-radius:10px;background:#000;}
+  #result{min-height:56px;margin-top:12px;padding:12px;border-radius:10px;background:#f8fafc;font-weight:700;color:#0f172a;}
+  button{margin-top:12px;padding:10px 14px;border-radius:10px;border:0;background:#0b84ff;color:#fff;cursor:pointer;font-weight:700;}
+  .ok{color:var(--ok);} .err{color:var(--bad);}
+  pre{margin-top:10px;height:80px;overflow:auto;background:#f1f5f9;padding:8px;border-radius:8px;text-align:left;}
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>🎉 Freshers Entry Scanner</h1>
-    <p class="sub">Tap <strong>Start Scanner</strong>, allow camera permission, then scan QR. Use the Scan Again button if needed.</p>
-
-    <!-- Video preview -->
+    <h1>🎩 VIP QR Scanner</h1>
     <video id="video" playsinline></video>
-    <canvas id="canvas"></canvas>
-
-    <div id="result">Idle — press Start Scanner.</div>
-
-    <div class="controls">
-      <button id="startBtn" class="btn btn-primary">📷 Start Scanner</button>
-      <button id="scanAgainBtn" class="btn btn-primary" style="display:none">🔄 Scan Again</button>
-      <label style="display:flex;align-items:center;gap:6px;margin-left:6px">
-        <input id="autoResume" type="checkbox" /> Auto-resume 3s
-      </label>
-    </div>
-
-    <div style="margin-top:12px;">
-      <input id="manualRoll" type="text" placeholder="Enter roll number" />
-      <button id="manualBtn" class="btn btn-green">Validate</button>
-      <button id="clearBtn" class="btn btn-muted">Clear</button>
-    </div>
-
-    <div class="small" id="tips">
-      If camera permission blocked: open browser settings → site settings → allow camera. Use Chrome (Android) or Chrome/Edge (desktop).
-    </div>
-
-    <pre class="debug" id="debugLog" aria-hidden="false"></pre>
+    <canvas id="canvas" style="display:none"></canvas>
+    <div id="result">Press Start to scan a VIP QR.</div>
+    <button id="startBtn">Start Scanner</button>
+    <pre id="log"></pre>
   </div>
 
 <script>
-/* ---------- CONFIG ---------- */
 const BACKEND = "https://vip-backend-2kgs.onrender.com"; // your backend
-/* ---------------------------- */
-
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const startBtn = document.getElementById('startBtn');
-const scanAgainBtn = document.getElementById('scanAgainBtn');
-const autoResume = document.getElementById('autoResume');
 const resultEl = document.getElementById('result');
-const debugLog = document.getElementById('debugLog');
-const manualRoll = document.getElementById('manualRoll');
-const manualBtn = document.getElementById('manualBtn');
-const clearBtn = document.getElementById('clearBtn');
+const log = document.getElementById('log');
+const startBtn = document.getElementById('startBtn');
 
-let stream = null;
-let scanning = false;
-let resumeTimer = null;
+let stream=null, scanning=false;
 
-function logDebug(...args){ console.log(...args); debugLog.textContent = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ' ) + '\n' + debugLog.textContent; }
-function showResult(text, ok=null){
-  resultEl.textContent = text;
-  if(ok===true) { resultEl.classList.remove('error'); resultEl.classList.add('ok'); resultEl.style.color=''; }
-  else if(ok===false) { resultEl.classList.remove('ok'); resultEl.classList.add('error'); resultEl.style.color=''; }
-  else { resultEl.classList.remove('ok'); resultEl.classList.remove('error'); resultEl.style.color=''; }
+function logMsg(...a){ log.textContent = a.join(' ') + '\n' + log.textContent; }
+function show(msg, ok=null){
+  resultEl.textContent = msg;
+  resultEl.classList.remove('ok','err');
+  if(ok===true) resultEl.classList.add('ok');
+  else if(ok===false) resultEl.classList.add('err');
 }
 
-/* Validate against backend */
-async function validateRoll(roll){
-  if(!roll){ showResult('Please provide roll number', false); return; }
-  showResult('Checking...', null);
-  try{
-    const r = await fetch(BACKEND_URL + '/validate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ roll_no: String(roll).trim() }),
-      cache: 'no-store'
-    });
-    const data = await r.json();
-    logDebug('backend:', data);
-    if(!data || !data.status) { showResult('Unexpected server response', false); return; }
-    if(data.status === 'ok') showResult(data.msg || CSE[AL&ML]'✅ Welcomes! you to freshers party Entry Approved', true);
-    else showResult(data.msg || '❌ Invalid or Already Used', false);
-  }catch(err){
-    console.error('validate error', err);
-    logDebug('validate error', err.message || err);
-    showResult('Network error — cannot reach backend', false);
-  }
-}
-
-/* Start camera and scanning loop */
 async function startScanner(){
   if(scanning) return;
-  showResult('Requesting camera permission...');
-  debugLog.textContent = ''; // clear debug
+  show('Requesting camera...');
   try{
-    // request environment camera
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' }});
     video.srcObject = stream;
     await video.play();
     scanning = true;
-    showResult('Point camera to QR code — scanning…');
-    scanAgainBtn.style.display = 'none';
+    show('Point camera to VIP QR...');
     tick();
-    logDebug('Camera started');
-  }catch(err){
-    console.error('camera start error', err);
-    logDebug('camera start error:', err.name || err.message || err);
-    if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
-      showResult('Camera permission denied. Open site settings to allow camera and reload.', false);
-    } else if(err.name === 'NotFoundError' || err.name === 'OverconstrainedError'){
-      showResult('No suitable camera found on this device', false);
-    } else {
-      showResult('Camera error: ' + (err.message || err.name), false);
-    }
-    scanning = false;
-    if(stream){ stopScanner(); }
+  }catch(e){
+    show('Camera error: ' + (e.message||e.name), false);
+    logMsg('camera error', e);
   }
 }
 
-/* Stop camera */
-async function stopScanner(){
-  if(!scanning && !stream) return;
-  try{
-    if(stream){
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
-    video.pause();
-    video.srcObject = null;
-  }catch(e){ logDebug('stop error', e); }
-  scanning = false;
-  scanAgainBtn.style.display = 'inline-block';
-  logDebug('Camera stopped');
+function stopScanner(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  scanning=false;
 }
 
-/* Main frame loop for psuedo-continuous scanning using jsQR */
+async function sendToServer(serial){
+  try{
+    const r = await fetch(BACKEND + '/vipvalidate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ serial }),
+      cache: 'no-store'
+    });
+    const data = await r.json();
+    logMsg('server:', JSON.stringify(data));
+    if(data.status === 'ok'){
+      show(data.msg, true);
+    } else {
+      show(data.msg || '❌ '+(data.status||'error'), false);
+    }
+  }catch(err){
+    show('Network error', false);
+    logMsg('fetch error', err);
+  }
+}
+
 function tick(){
   if(!scanning) return;
   if(video.readyState === video.HAVE_ENOUGH_DATA){
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0,0,canvas.width, canvas.height);
-    const code = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" });
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
     if(code){
-      // QR found
-      logDebug('QR data:', code.data);
-      // stop to avoid duplicates
-      stopScanner().then(() => {
-        validateRoll(code.data);
-        // auto resume or leave Scan Again visible
-        if(autoResume.checked){
-          if(resumeTimer) clearTimeout(resumeTimer);
-          resumeTimer = setTimeout(() => {
-            resumeTimer = null;
-            startScanner();
-          }, 3000);
-        } else {
-          // show Scan Again
-          scanAgainBtn.style.display = 'inline-block';
-        }
-      });
+      logMsg('scanned serial:', code.data);
+      stopScanner();
+      const serial = code.data.trim();
+      sendToServer(serial);
       return;
     }
   }
   requestAnimationFrame(tick);
 }
 
-/* Manual & UI handlers */
-startBtn.addEventListener('click', startScanner);
-scanAgainBtn.addEventListener('click', () => { scanAgainBtn.style.display='none'; startScanner(); });
-
-manualBtn.addEventListener('click', async () => {
-  if(scanning) await stopScanner();
-  await validateRoll(manualRoll.value);
+startBtn.addEventListener('click', ()=>{
+  show('Starting camera...');
+  startScanner();
 });
-clearBtn.addEventListener('click', () => { resultEl.textContent = ''; manualRoll.value = ''; });
-
-/* Helpful instructions if user previously denied permission */
-function showPermissionHelp(){
-  const ua = navigator.userAgent || '';
-  let tip = 'If camera permission was denied: open browser/site settings → Permissions → Camera → allow. Then reload the page.';
-  if(/Android/i.test(ua)) tip += ' (Android: Chrome → Lock icon → Site settings → Camera)';
-  if(/iPhone|iPad|iPod/i.test(ua)) tip += ' (iOS Safari: Settings app → Safari → Camera → allow for the site)';
-  document.getElementById('tips').textContent = tip;
-}
-showPermissionHelp();
-
-/* Quick backend health check to help debugging */
-(async function backendHealth(){
-  try{
-    const r = await fetch(BACKEND_URL + '/health', {cache:'no-store'});
-    if(r.ok){ logDebug('Backend reachable: /health ok'); }
-    else{ logDebug('Backend /health returned', r.status); }
-  }catch(e){ logDebug('Backend health check failed:', e.message || e); showResult('Warning: backend unreachable — scanner will not validate', false); }
-})();
 </script>
 </body>
 </html>
-
